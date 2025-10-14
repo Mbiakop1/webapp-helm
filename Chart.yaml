@@ -7,5 +7,5 @@ version: 0.1.0
 dependencies:
   - name: application-helm
     version: 0.0.14
-    repository: "file://charts/application-helm"
+    repository: "https://pawapay.github.io/application-helm"
     alias: application-helm
