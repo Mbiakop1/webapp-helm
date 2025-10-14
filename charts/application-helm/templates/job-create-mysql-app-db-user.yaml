@@ -1,0 +1,115 @@
+{{- if .Values.initdb -}}
+{{- if .Values.initdb.mysql.auto_db_user_create -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ template "application.name" $ }}-db-user-creation
+  {{- if .Values.initdb.annotations }}
+  annotations:
+{{ toYaml .Values.initdb.annotations | indent 4 }}
+  {{- end }}
+spec:
+  ttlSecondsAfterFinished: 120
+  template:
+    spec:
+      containers:
+      - name: {{ template "application.name" $ }}-db-user-creation
+        image: mysql:8.0.29-debian
+        command:
+          - bash
+          - -c
+          - >
+            set -eo pipefail;
+            echo "DB config parameters:";
+            export DB_PROTO="$(cut -d':' -f2 <<<"${SPRING_DATASOURCE_URL}")";
+            echo "DB Protocol: ${DB_PROTO}";
+            TEMP_HOST="$(cut -d':' -f3 <<<"${SPRING_DATASOURCE_URL}")";
+            export HOST="$(cut -d'/' -f3 <<<"${TEMP_HOST}")";
+            echo "DB Host: ${HOST}";
+            TEMP_PORT="$(cut -d':' -f4 <<<"${SPRING_DATASOURCE_URL}")";
+            export PORT="$(cut -d'/' -f1 <<<"${TEMP_PORT}")";
+            echo "DB Port: ${PORT}";
+            TEMP_DB="$(cut -d'/' -f2 <<<"${TEMP_PORT}")";
+            export DB="$(cut -d'?' -f1 <<<"${TEMP_DB}")";
+            echo "DB: ${DB}";
+            echo "---Waiting for DB to be up---";
+            while ! mysqladmin ping -h ${HOST} -P ${PORT} --silent; do sleep 1; done;
+            export SQLDBCREATECOMMAND="CREATE DATABASE IF NOT EXISTS ${DB} CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;";
+            echo "---Creating database if not exists ${SQLDBCREATECOMMAND}---";
+            echo "${SQLDBCREATECOMMAND}" | mysql --user ${USER_CREATE_USERNAME} --host ${HOST} --port ${PORT} --password=${USER_CREATE_PASSWORD};
+            sleep 2;
+            echo "---Checking if user ${SPRING_DATASOURCE_USERNAME} exists---";
+            USER_EXISTS=$(echo "SELECT COUNT(*) FROM mysql.user WHERE user='${SPRING_DATASOURCE_USERNAME}' AND host='%';" | mysql --user ${USER_CREATE_USERNAME} --host ${HOST} --port ${PORT} --password=${USER_CREATE_PASSWORD} -s -N);
+            if [ "$USER_EXISTS" -eq "0" ]; then
+              echo "---User ${SPRING_DATASOURCE_USERNAME} does not exist. Creating user---";
+              export SQLUSERCREATECOMMAND="CREATE USER '${SPRING_DATASOURCE_USERNAME}'@'%' IDENTIFIED BY '${SPRING_DATASOURCE_PASSWORD}';";
+              echo "${SQLUSERCREATECOMMAND}" | mysql --user ${USER_CREATE_USERNAME} --host ${HOST} --port ${PORT} --password=${USER_CREATE_PASSWORD};
+            else
+              echo "---User ${SPRING_DATASOURCE_USERNAME} already exists. Skipping user creation---";
+            fi;
+            sleep 2;
+            export SQLCOMMAND="GRANT ${SQL_PERMISSIONS} ON ${DB}.* TO '${SPRING_DATASOURCE_USERNAME}'@'%';";
+            echo "---Executing grant command: ${SQLCOMMAND}---";
+            echo "${SQLCOMMAND}" | mysql --user ${USER_CREATE_USERNAME} --host ${HOST} --port ${PORT} --password=${USER_CREATE_PASSWORD};
+            if [ -n "${SQL_CUSTOM_PERMISSIONS}" ]; then
+              export SQLCUSTOMCOMMAND="GRANT ${SQL_CUSTOM_PERMISSIONS} TO '${SPRING_DATASOURCE_USERNAME}'@'%';";
+              echo "---Executing custom permissions: ${SQLCUSTOMCOMMAND}---";
+              echo "${SQLCUSTOMCOMMAND}" | mysql --user ${USER_CREATE_USERNAME} --host ${HOST} --port ${PORT} --password=${USER_CREATE_PASSWORD};
+            fi;
+            sleep 4;
+        env:
+        - name: USER_CREATE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.environment }}-{{ template "application.name" $ }}-app-db-user-create
+              key: USER_CREATE_USERNAME
+        - name: USER_CREATE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.environment }}-{{ template "application.name" $ }}-app-db-user-create
+              key: USER_CREATE_PASSWORD
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.environment }}-{{ template "application.name" $ }}-rds-credentials
+              key: DATASOURCE_USERNAME
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.environment }}-{{ template "application.name" $ }}-rds-credentials
+              key: DATASOURCE_PASSWORD
+        - name: SPRING_DATASOURCE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ template "application.name" $ }}-env-vars
+              key: SPRING_DATASOURCE_URL
+        - name: SQL_PERMISSIONS
+          value: {{ .Values.initdb.mysql.permissions }}
+        - name: SQL_CUSTOM_PERMISSIONS
+          value: {{ .Values.initdb.mysql.custom_permissions | default "" }}
+      restartPolicy: Never
+  backoffLimit: 2
+---
+apiVersion: 'external-secrets.io/v1beta1'
+kind: ExternalSecret
+metadata:
+  name: {{ .Values.environment }}-{{ template "application.name" $ }}-app-db-user-create
+  {{- if .Values.initdb.secret.annotations }}
+  annotations:
+{{ toYaml .Values.initdb.secret.annotations | indent 4 }}
+  {{- end }}
+spec:
+  data:
+  - remoteRef:
+      key: {{ .Values.environment }}-app-db-user-create
+      property: USER_CREATE_USERNAME
+    secretKey: USER_CREATE_USERNAME 
+  - remoteRef:
+      key: {{ .Values.environment }}-app-db-user-create
+      property: USER_CREATE_PASSWORD
+    secretKey: USER_CREATE_PASSWORD 
+  secretStoreRef:
+    kind: {{ $.Values.external_secrets.secretStoreRef.kind }}
+    name: {{ $.Values.external_secrets.secretStoreRef.name }}
+{{- end -}}
+{{- end -}}

@@ -1,0 +1,17 @@
+{{- if .Values.securityGroupPolicy.securityGroups.groupIds }}
+apiVersion: vpcresources.k8s.aws/v1beta1
+kind: SecurityGroupPolicy
+metadata:
+  name: {{ template "application.name" . }}-sg-policy
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ template "application.name" . }}
+  securityGroups:
+    groupIds:
+      {{- range .Values.securityGroupPolicy.securityGroups.groupIds }}
+      - {{ . }}
+      {{- end }}
+{{- end }}

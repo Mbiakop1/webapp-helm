@@ -1,0 +1,67 @@
+applicationName: client-ip-app
+environment: dev
+
+deployment:
+  replicas: 2
+  image:
+    repository: 084375551147.dkr.ecr.us-east-1.amazonaws.com/client-api-app
+    tag: e144b992
+    pullPolicy: IfNotPresent
+  env:
+    - name: DB_HOST
+      value: database-1.ccx6am8qmr3y.us-east-1.rds.amazonaws.com
+    - name: DB_NAME
+      value: mysqldb
+    - name: SECRET_NAME
+      value: rds!db-9bb3dac0-f36e-4cd2-8431-057ff6173f00
+
+
+service:
+  type: ClusterIP
+  ingress_port: 80
+  ports:
+    - web: 80
+  annotations:
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+  labels:
+    app: client-ip-app
+
+persistence:
+  enabled: false
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        targetAverageUtilization: 60
+    - type: Resource
+      resource:
+        name: memory
+        targetAverageUtilization: 60
+
+rbac:
+  enabled: true
+
+  # Create namespace-scoped Roles and bind them to service account
+  roles:
+    - name: app-role
+      rules:
+        - apiGroups: [""]
+          resources: ["pods", "secrets", "configmaps"]
+          verbs: ["get", "list", "watch"]
+
+
+  # Service account section
+  serviceAccount:
+    enabled: true
+    name: app-serviceaccount     #create this service account on EKS with  kms and secrets manager permissions
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::084375551147:role/app-irsa-role   
+    labels:
+      app.kubernetes.io/component: backend

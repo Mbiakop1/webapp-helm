@@ -1,0 +1,11 @@
+apiVersion: v2
+name: client-ip-app
+description: Helm chart to deploy Flask IP collector app
+type: application
+version: 0.1.0
+
+dependencies:
+  - name: application-helm
+    version: 0.0.14
+    repository: "file://charts/application-helm"
+    alias: application-helm

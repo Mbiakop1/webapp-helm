@@ -1,0 +1,6 @@
+dependencies:
+- name: application-helm
+  repository: file://charts/application-helm
+  version: 0.0.14
+digest: sha256:667c5d00c915053955e0bda7bd5ce59cdbd7e32e357b4941ff06d74c0123a87f
+generated: "2025-10-13T12:28:54.7642011+01:00"
